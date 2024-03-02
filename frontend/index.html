@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Remote Execute Terminal</title>
+  <style>
+    body {
+      font-family: monospace;
+      margin: 0; /* Remove default margin */
+      padding: 0; /* Remove default padding */
+    }
+    #terminal {
+      width: 80%;
+      height: calc(100vh - 40px); /* Set height to fill remaining viewport height */
+      margin: 20px auto;
+      padding: 20px;
+      border: 1px solid #ccc;
+      background-color: #f9f9f9;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      overflow-y: scroll; /* Enable vertical scrolling */
+      white-space: pre-wrap; /* Preserve newline characters */
+    }
+    #input-container {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 40px; /* Set fixed height for the input bar */
+      background-color: #f9f9f9;
+      border-top: 1px solid #ccc;
+      padding: 10px;
+      box-sizing: border-box; /* Include padding in width/height */
+      display: flex; /* Make children align horizontally */
+      align-items: center; /* Center vertically */
+    }
+    #input {
+      width: calc(100% - 100px); /* Adjust width as needed */
+      height: 100%; /* Fill container height */
+      border: none;
+      outline: none;
+      background-color: transparent;
+      font-family: monospace;
+      font-size: inherit;
+      margin-right: 10px; /* Add margin for spacing */
+    }
+    #cwd {
+      margin-right: 5px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="terminal">
+  <div id="output"></div>
+</div>
+
+<div id="input-container">
+  <span id="cwd"></span>
+  <input type="text" id="input" placeholder="...">
+</div>
+
+<script>
+const input = document.getElementById('input');
+const output = document.getElementById('output');
+const cwd = document.getElementById('cwd');
+const terminal = document.getElementById('terminal');
+
+// Function to fetch and display current directory
+async function getCurrentDirectory() {
+  try {
+    const response = await fetch(`${getServerURL()}/cwd`);
+    const data = await response.json();
+    cwd.textContent = `<${data.current_directory}> $`;
+  } catch (error) {
+    console.error('Error fetching current directory:', error);
+  }
+}
+
+// Function to scroll the terminal to the bottom
+function scrollToBottom() {
+  terminal.scrollTop = terminal.scrollHeight;
+}
+
+// Function to get server URL from the URL bar
+function getServerURL() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const ipAddress = urlParams.get('ip') || 'localhost';
+  const port = urlParams.get('port') || '8000';
+  return `http://${ipAddress}:${port}`;
+}
+
+// Load command history and output from local storage
+let history = JSON.parse(localStorage.getItem('commandHistory')) || [];
+output.innerHTML = localStorage.getItem('commandOutput') || '';
+
+let historyIndex = history.length; // Index to track current position in command history
+
+// Call the function initially to set the current directory
+getCurrentDirectory();
+
+input.addEventListener('keydown', function(event) {
+  if (event.key === 'ArrowUp') {
+    // Move up in command history
+    historyIndex = Math.max(0, historyIndex - 1);
+    input.value = history[historyIndex] || ''; // Set input value to history command
+    event.preventDefault(); // Prevent default arrow key behavior
+  } else if (event.key === 'ArrowDown') {
+    // Move down in command history
+    historyIndex = Math.min(history.length, historyIndex + 1);
+    input.value = history[historyIndex] || ''; // Set input value to history command
+    event.preventDefault(); // Prevent default arrow key behavior
+  }
+});
+
+input.addEventListener('keyup', function(event) {
+  if (event.key === 'Enter') {
+    const command = input.value.trim();
+    if (command === 'clear') {
+      clearTerminal();
+    } else {
+      fetch(`${getServerURL()}/exec`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          command: command.split(' ')[0],
+          args: command.split(' ').slice(1)
+        })
+      })
+      .then(response => response.json())
+      .then(data => {
+        // Add command to history buffer
+        history.push(command);
+        // Save command history to local storage
+        localStorage.setItem('commandHistory', JSON.stringify(history));
+        historyIndex = history.length; // Reset history index to end
+        // Display command output in the output area
+        const timestamp = new Date().toLocaleString();
+        output.innerHTML += `[${timestamp}] ${command}\n${data.output}\n\n`;
+        // Save command output to local storage
+        localStorage.setItem('commandOutput', output.innerHTML);
+        // Scroll the terminal to the bottom
+        scrollToBottom();
+      })
+      .catch(error => {
+        output.textContent = 'Error executing command: ' + error.message;
+      });
+    }
+    input.value = ''; // Clear the input field after executing command
+  }
+});
+
+// Function to clear the terminal screen and history
+function clearTerminal() {
+  output.innerHTML = '';
+  history = [];
+  historyIndex = 0; // Reset history index
+  // Save empty command history and output to local storage
+  localStorage.setItem('commandHistory', JSON.stringify(history));
+  localStorage.setItem('commandOutput', '');
+  // Scroll the terminal to the bottom after clearing
+  scrollToBottom();
+}
+
+</script>
+
+</body>
+</html>
